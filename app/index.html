@@ -3,20 +3,57 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cover Snap</title>
+<title>Solmarina Cover Studio — GTA-style cover maker</title>
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 <main class="app">
-  <section class="controls">
-    <h1>Cover Snap</h1>
-    <p>A photo and a caption, made into a square cover.</p>
-    <label>Photo <input id="photo" type="file" accept="image/*"></label>
-    <label>Caption <input id="caption" type="text" maxlength="40" value="Sunset Heist"></label>
-    <button id="export" type="button">Export PNG 1080 x 1080</button>
+  <section class="controls" aria-label="Cover controls">
+    <h1>Solmarina <span>Cover Studio</span></h1>
+    <p class="tagline">Turn your photo and a caption into a GTA-style poster cover for the fictional coastal city of Solmarina.</p>
+
+    <fieldset>
+      <legend>1 · Post size</legend>
+      <div class="sizes" role="group" aria-label="Post size">
+        <button type="button" class="size-btn is-active" data-size="square">Square<br><b>1080 × 1080</b></button>
+        <button type="button" class="size-btn" data-size="portrait">Portrait<br><b>1080 × 1350</b></button>
+        <button type="button" class="size-btn" data-size="wide">Wide<br><b>1920 × 1080</b></button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>2 · Photos</legend>
+      <div class="photo-slots">
+        <label class="slot">Hero photo <input id="photo-0" type="file" accept="image/*"></label>
+        <label class="slot">Panel 2 <input id="photo-1" type="file" accept="image/*"></label>
+        <label class="slot">Panel 3 <input id="photo-2" type="file" accept="image/*"></label>
+      </div>
+      <label class="check"><input id="one-photo" type="checkbox"> One photo fills all panels</label>
+      <button id="demo" type="button" class="ghost">Load demo photos</button>
+      <p class="hint">Click a panel on the preview to select it, then drag it to crop and position. Photos stay on your machine — nothing is uploaded.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>3 · Words &amp; grade</legend>
+      <label>Caption <input id="caption" type="text" maxlength="28" value="Boulevard Queen"></label>
+      <label>Subtitle <input id="subtitle" type="text" maxlength="40" value="Streets of the Sun"></label>
+      <div class="swatches" role="group" aria-label="Caption colour">
+        <button type="button" class="swatch is-active" data-color="#ffffff" style="--c:#ffffff" aria-label="White caption">A</button>
+        <button type="button" class="swatch" data-color="#ff5ea8" style="--c:#ff5ea8" aria-label="Hot pink caption">A</button>
+        <button type="button" class="swatch" data-color="#ffd23f" style="--c:#ffd23f" aria-label="Sun yellow caption">A</button>
+      </div>
+      <label>Sunset grade <input id="grade" type="range" min="0" max="100" value="70"></label>
+      <label>Selected panel zoom <input id="zoom" type="range" min="100" max="250" value="100"></label>
+    </fieldset>
+
+    <button id="export" type="button" class="primary">Export PNG</button>
     <p id="status" role="status"></p>
   </section>
-  <canvas id="cover" width="1080" height="1080" aria-label="The cover"></canvas>
+
+  <section class="preview" aria-label="Live preview">
+    <canvas id="cover" width="1080" height="1080" aria-label="The cover"></canvas>
+    <p class="preview-note">Live preview — click a panel to select it, drag to reposition its photo.</p>
+  </section>
 </main>
 <script type="module" src="./src/main.js"></script>
 </body>
