@@ -1,60 +1,77 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Solmarina Cover Studio — GTA-style cover maker</title>
-<link rel="stylesheet" href="./style.css">
+<title>Solmarina Cover Studio — GTA-style cover art maker</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main class="app">
-  <section class="controls" aria-label="Cover controls">
-    <h1>Solmarina <span>Cover Studio</span></h1>
-    <p class="tagline">Turn your photo and a caption into a GTA-style poster cover for the fictional coastal city of Solmarina.</p>
+<header class="top">
+  <h1>Solmarina <span>Cover Studio</span></h1>
+  <p>Turn your photo and a caption into GTA-style cover art — no Rockstar,
+  all Solmarina. Your photos never leave this machine.</p>
+</header>
 
-    <fieldset>
-      <legend>1 · Post size</legend>
-      <div class="sizes" role="group" aria-label="Post size">
-        <button type="button" class="size-btn is-active" data-size="square">Square<br><b>1080 × 1080</b></button>
-        <button type="button" class="size-btn" data-size="portrait">Portrait<br><b>1080 × 1350</b></button>
-        <button type="button" class="size-btn" data-size="wide">Wide<br><b>1920 × 1080</b></button>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>2 · Photos</legend>
-      <div class="photo-slots">
-        <label class="slot">Hero photo <input id="photo-0" type="file" accept="image/*"></label>
-        <label class="slot">Panel 2 <input id="photo-1" type="file" accept="image/*"></label>
-        <label class="slot">Panel 3 <input id="photo-2" type="file" accept="image/*"></label>
-      </div>
-      <label class="check"><input id="one-photo" type="checkbox"> One photo fills all panels</label>
-      <button id="demo" type="button" class="ghost">Load demo photos</button>
-      <p class="hint">Click a panel on the preview to select it, then drag it to crop and position. Photos stay on your machine — nothing is uploaded.</p>
-    </fieldset>
-
-    <fieldset>
-      <legend>3 · Words &amp; grade</legend>
-      <label>Caption <input id="caption" type="text" maxlength="28" value="Boulevard Queen"></label>
-      <label>Subtitle <input id="subtitle" type="text" maxlength="40" value="Streets of the Sun"></label>
-      <div class="swatches" role="group" aria-label="Caption colour">
-        <button type="button" class="swatch is-active" data-color="#ffffff" style="--c:#ffffff" aria-label="White caption">A</button>
-        <button type="button" class="swatch" data-color="#ff5ea8" style="--c:#ff5ea8" aria-label="Hot pink caption">A</button>
-        <button type="button" class="swatch" data-color="#ffd23f" style="--c:#ffd23f" aria-label="Sun yellow caption">A</button>
-      </div>
-      <label>Sunset grade <input id="grade" type="range" min="0" max="100" value="70"></label>
-      <label>Selected panel zoom <input id="zoom" type="range" min="100" max="250" value="100"></label>
-    </fieldset>
-
-    <button id="export" type="button" class="primary">Export PNG</button>
-    <p id="status" role="status"></p>
+<main class="studio">
+  <section class="preview-col">
+    <canvas id="preview" width="1080" height="1080"></canvas>
+    <p class="hint">Click a panel to select it — drag inside it to crop the photo,
+    then use the zoom slider. The preview is the cover at full export size.</p>
+    <p class="status" id="status">Load a photo or the demo photos to begin.</p>
   </section>
 
-  <section class="preview" aria-label="Live preview">
-    <canvas id="cover" width="1080" height="1080" aria-label="The cover"></canvas>
-    <p class="preview-note">Live preview — click a panel to select it, drag to reposition its photo.</p>
-  </section>
+  <aside class="controls">
+    <section class="group">
+      <h2>1 · Export size</h2>
+      <div class="row">
+        <button class="size-btn active" data-size="square">Square<br>1080 × 1080</button>
+        <button class="size-btn" data-size="portrait">Portrait<br>1080 × 1350</button>
+        <button class="size-btn" data-size="wide">Wide<br>1920 × 1080</button>
+      </div>
+      <p class="meta" id="sizeLabel">Square 1080 × 1080 — panel 1 selected</p>
+    </section>
+
+    <section class="group">
+      <h2>2 · Photos</h2>
+      <label class="file">Panel 1 (hero) <input type="file" accept="image/*" data-slot="0"></label>
+      <label class="file">Panel 2 <input type="file" accept="image/*" data-slot="1"></label>
+      <label class="file">Panel 3 <input type="file" accept="image/*" data-slot="2"></label>
+      <div class="row">
+        <button id="demoBtn">Load demo photos</button>
+        <label class="check"><input type="checkbox" id="fillAll"> One photo fills all panels</label>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>3 · Selected panel</h2>
+      <label class="slider">Zoom <input type="range" id="zoom" min="100" max="250" value="100">
+      <span id="zoomVal">100%</span></label>
+    </section>
+
+    <section class="group">
+      <h2>4 · Caption</h2>
+      <label class="text">Caption
+        <input type="text" id="caption" value="SUNSET HEIST" maxlength="40">
+      </label>
+      <label class="text">Subtitle
+        <input type="text" id="subtitle" value="A SOLMARINA STORY" maxlength="48">
+      </label>
+      <div class="row swatches">
+        <button class="swatch active" data-color="white" style="--c:#ffffff" aria-label="White caption">White</button>
+        <button class="swatch" data-color="pink" style="--c:#ff5fa2" aria-label="Hot pink caption">Hot pink</button>
+        <button class="swatch" data-color="yellow" style="--c:#ffc93c" aria-label="Sun yellow caption">Sun yellow</button>
+      </div>
+    </section>
+
+    <button id="exportBtn">Export PNG</button>
+    <p class="fine">Solmarina is a fictional city. Every name, face and letter here is
+    original — no Rockstar logo, artwork, character or font. Display type:
+    Anton, licensed under the SIL Open Font License (see app/fonts/OFL.txt).
+    Sample photos are AI-made and free to use.</p>
+  </aside>
 </main>
-<script type="module" src="./src/main.js"></script>
+
+<script type="module" src="src/main.js"></script>
 </body>
 </html>
