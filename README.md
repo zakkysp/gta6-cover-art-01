@@ -4,18 +4,22 @@
 [![rank](https://make.fun/badge/gta6-cover-art-01/zakkysp/gta6-cover-art-01/rank.svg)](https://make.fun/bounty/gta6-cover-art-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 [![reward](https://make.fun/badge/gta6-cover-art-01/zakkysp/gta6-cover-art-01/reward.svg)](https://make.fun/bounty/gta6-cover-art-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 
-Solmarina Cover Studio — a web app that turns your photo and a caption into GTA-style cover art for the fictional coastal city of Solmarina. Three photo panels on a cream poster board, a Vice City sunset grade over every photo, and a bold Anton caption band along the foot. Load your own photos (they stay on your machine), click a panel to select it, drag to crop and position, pick a post size — Square 1080 × 1080, Portrait 1080 × 1350 or Wide 1920 × 1080 — and export a PNG to share. No Rockstar artwork, logos or fonts: the city, the names and the design are all invented, and the display font is Anton under the SIL Open Font License.
+Solmarina Cover Studio — a web app that turns your photo and a caption into multi-panel GTA-style cover art for the fictional coastal city Solmarina, exported as a PNG in 1080×1080, 1080×1350 or 1920×1080.
+
+## What it does
+
+- Three photo panels on a cream poster board — one big hero panel and two smaller ones — each graded with a Vice City sunset (orange into magenta, boosted saturation, vignette).
+- Any photo: load your own from your machine (read locally, never uploaded), or the demo photos, crop and position each panel by dragging, zoom 100–250% per panel, or fill all three panels with one photo.
+- Caption and subtitle in bold Anton display type, with a pink-to-yellow neon rule and a choice of white, hot pink or sun yellow lettering.
+- One Export PNG button downloads the cover at the size you picked: Square 1080×1080, Portrait 1080×1350 or Wide 1920×1080.
+
+Solmarina is a fictional city — every name and letter here is original. No Rockstar logo, artwork, character or font. Display type is Anton, licensed under the SIL Open Font License (see `app/fonts/OFL.txt`). Sample photos are AI-made and free to use.
 
 ## Run it
 
 ```sh
 node serve.ts
-```
-
-Then open http://localhost:8080 in desktop Chrome. To hand the entry in:
-
-```sh
-mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+# then open http://localhost:8080
 ```
 
 ---
