@@ -1,14 +1,41 @@
-// Fixed scenes for screenshots: ?shot=editor shows the page with demo
-// photos loaded; ?shot=cover shows the cover alone, edge to edge. `photo`
-// picks the hero sample (samples/<photo>.jpg), `caption` the words, `size`
-// the post size (square, portrait or wide). window.__shotReady is set once
-// the scene has painted.
-export async function runShot(shot, query, load) {
-  if (shot === 'cover') document.body.classList.add('shot-cover');
-  await load(
-    query.get('photo') ?? 'pier',
-    query.get('caption') ?? 'Sunset Heist',
-    query.get('size') ?? 'square',
-  );
-  requestAnimationFrame(() => requestAnimationFrame(() => { window.__shotReady = true; }));
+// Solmarina Cover Studio — demo scenes.
+// A scene is one ready-made cover: export size, caption, subtitle and
+// caption colour. The editor applies one from a ?scene= URL parameter,
+// which is also how the screenshots are driven.
+
+export const SCENES = {
+  sunset: {
+    size: 'square',
+    caption: 'SUNSET HEIST',
+    subtitle: 'A SOLMARINA STORY',
+    color: 'yellow',
+  },
+  queen: {
+    size: 'portrait',
+    caption: 'BOULEVARD QUEEN',
+    subtitle: 'SOLMARINA AFTER DARK',
+    color: 'pink',
+  },
+  tide: {
+    size: 'wide',
+    caption: 'NEON TIDE',
+    subtitle: 'THE HARBOUR NEVER SLEEPS',
+    color: 'white',
+  },
+};
+
+// The two kit sample photos (AI-made, free to use) the "Load demo photos"
+// button fills the panels with.
+export const DEMO_PHOTOS = ['samples/boulevard.jpg', 'samples/pier.jpg'];
+
+// Copy a scene's fields into the editor state. Returns false for an
+// unknown scene name so a bad URL parameter is ignored, not fatal.
+export function applyScene(state, name) {
+  const scene = SCENES[name];
+  if (!scene) return false;
+  state.size = scene.size;
+  state.caption = scene.caption;
+  state.subtitle = scene.subtitle;
+  state.color = scene.color;
+  return true;
 }

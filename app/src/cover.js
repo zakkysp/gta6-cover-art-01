@@ -1,236 +1,242 @@
-// Draws a GTA-style multi-panel poster cover for the fictional coastal city
-// of Solmarina: three photo panels on a cream poster board, a Vice City
-// sunset grade over every photo, and a bold Anton caption band along the
-// foot. All drawing is plain canvas 2D; the only font is Anton (OFL).
+// Solmarina Cover Studio — the cover renderer.
+// Pure canvas 2D, no dependencies. One function draws the whole poster
+// (board, wordmark, three graded photo panels, caption band) at any size.
 
 export const SIZES = {
-  square: { w: 1080, h: 1080, label: '1080 × 1080' },
-  portrait: { w: 1080, h: 1350, label: '1080 × 1350' },
-  wide: { w: 1920, h: 1080, label: '1920 × 1080' },
+  square: { w: 1080, h: 1080, label: 'Square 1080 × 1080' },
+  portrait: { w: 1080, h: 1350, label: 'Portrait 1080 × 1350' },
+  wide: { w: 1920, h: 1080, label: 'Wide 1920 × 1080' },
 };
 
-const CREAM = '#f5efe4';
-const BAND = '#1c1030';
-const PINK = '#ff5ea8';
-const YELLOW = '#ffd23f';
+export const SCENE_COLORS = {
+  white: '#ffffff',
+  pink: '#ff5fa2',
+  yellow: '#ffc93c',
+};
 
-/** Panel rectangles for a size, in export pixels. panels[0] is the hero. */
-export function layoutFor(sizeKey) {
-  const { w, h } = SIZES[sizeKey];
-  const g = Math.round(w * 0.011); // gutter, scales with width
-  if (sizeKey === 'wide') {
-    const heroW = Math.round(w * 0.604);
-    const colX = g + heroW + g;
-    const colW = w - colX - g;
-    const colH = Math.round((h - 3 * g - bandH(w)) / 2);
-    return {
-      w, h, g,
-      panels: [
-        { x: g, y: g, w: heroW, h: h - 2 * g - bandH(w) },
-        { x: colX, y: g, w: colW, h: colH },
-        { x: colX, y: g + colH + g, w: colW, h: colH },
-      ],
-      caption: { x: 0, y: h - g - bandH(w), w, h: bandH(w) },
-    };
-  }
-  // square + portrait: hero on top, two panels below, caption band at foot.
-  const heroH = sizeKey === 'portrait' ? Math.round(h * 0.459) : Math.round(h * 0.519);
-  const midH = Math.round(h * 0.252);
-  const halfW = Math.round((w - 3 * g) / 2);
-  const capY = g + heroH + g + midH + g;
+const NAVY = '#1d1530';
+const CREAM = '#f6ead1';
+const BOARD = '#f2e3c2';
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+// Every rect the poster needs, derived from the canvas size alone.
+export function layoutFor(w, h) {
+  const pad = Math.round(0.04 * w);
+  const top = Math.round(0.035 * h);
+  const gap = Math.round(0.018 * h);
+  const markH = Math.round(0.085 * h);
+  const heroH = Math.round(0.46 * h);
+  const smallH = Math.round(0.185 * h);
+  const hero = { x: pad, y: top + markH + gap, w: w - 2 * pad, h: heroH };
+  const smallW = Math.round((w - 2 * pad - gap) / 2);
+  const smallY = hero.y + hero.h + gap;
+  const small = [
+    { x: pad, y: smallY, w: smallW, h: smallH },
+    { x: pad + smallW + gap, y: smallY, w: smallW, h: smallH },
+  ];
+  const bandY = smallY + smallH + gap;
+  const band = { x: pad, y: bandY, w: w - 2 * pad, h: h - bandY - pad };
+  return { pad, top, gap, markH, hero, small, band };
+}
+
+// Cover-fit placement for one photo inside one panel, with the user's
+// crop offset (ox/oy, canvas pixels) and zoom applied on top.
+function coverFit(img, rect, frame) {
+  const base = Math.max(rect.w / img.naturalWidth, rect.h / img.naturalHeight);
+  const s = base * (frame && frame.zoom ? frame.zoom : 1);
+  const dw = img.naturalWidth * s;
+  const dh = img.naturalHeight * s;
+  const ox = frame && frame.ox ? frame.ox : 0;
+  const oy = frame && frame.oy ? frame.oy : 0;
   return {
-    w, h, g,
-    panels: [
-      { x: g, y: g, w: w - 2 * g, h: heroH },
-      { x: g, y: g + heroH + g, w: halfW, h: midH },
-      { x: g + halfW + g, y: g + heroH + g, w: halfW, h: midH },
-    ],
-    caption: { x: 0, y: capY, w, h: h - capY - g },
+    dx: rect.x + (rect.w - dw) / 2 + ox,
+    dy: rect.y + (rect.h - dh) / 2 + oy,
+    dw,
+    dh,
   };
 }
 
-function bandH(w) { return Math.round(w * 0.148); }
-
-/** Draws one photo cover-fit into a panel, with pan (ox, oy) and zoom. */
-function drawPhoto(ctx, img, rect, off) {
-  const zoom = off?.zoom ?? 1;
-  const base = Math.max(rect.w / img.naturalWidth, rect.h / img.naturalHeight) * zoom;
-  const pw = img.naturalWidth * base;
-  const ph = img.naturalHeight * base;
-  const cx = rect.x + rect.w / 2 + (off?.x ?? 0);
-  const cy = rect.y + rect.h / 2 + (off?.y ?? 0);
+function drawPhoto(ctx, img, rect, frame) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(rect.x, rect.y, rect.w, rect.h);
   ctx.clip();
-  ctx.filter = 'saturate(1.3) contrast(1.06)';
-  ctx.drawImage(img, cx - pw / 2, cy - ph / 2, pw, ph);
+  if (img) {
+    const f = coverFit(img, rect, frame);
+    ctx.filter = 'saturate(1.35) contrast(1.06) brightness(1.02)';
+    ctx.drawImage(img, f.dx, f.dy, f.dw, f.dh);
+    ctx.filter = 'none';
+    // Vice City sunset grade: warm orange melting into magenta, laid over
+    // the photo so every panel shares the same golden-hour light.
+    const g = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w * 0.7, rect.y + rect.h);
+    g.addColorStop(0, 'rgba(255, 122, 26, 0.22)');
+    g.addColorStop(0.55, 'rgba(255, 45, 120, 0.15)');
+    g.addColorStop(1, 'rgba(120, 40, 180, 0.17)');
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.fillStyle = g;
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.globalCompositeOperation = 'source-over';
+    // Vignette: darkened corners pull the eye to the middle of the shot.
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    const v = ctx.createRadialGradient(
+      cx, cy, Math.min(rect.w, rect.h) * 0.35,
+      cx, cy, Math.max(rect.w, rect.h) * 0.72,
+    );
+    v.addColorStop(0, 'rgba(24, 4, 40, 0)');
+    v.addColorStop(1, 'rgba(24, 4, 40, 0.38)');
+    ctx.fillStyle = v;
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  } else {
+    // Empty slot: a dark panel that invites a photo.
+    ctx.fillStyle = '#241b3a';
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.strokeStyle = 'rgba(246, 234, 209, 0.55)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 8]);
+    ctx.strokeRect(rect.x + 10, rect.y + 10, rect.w - 20, rect.h - 20);
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(246, 234, 209, 0.85)';
+    ctx.font = `600 ${Math.max(16, Math.round(rect.h * 0.13))}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('ADD A PHOTO', rect.x + rect.w / 2, rect.y + rect.h / 2);
+  }
   ctx.restore();
+  // Panel frame.
+  ctx.strokeStyle = NAVY;
+  ctx.lineWidth = Math.max(3, Math.round(rect.w * 0.004));
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
 }
 
-/** The sunset grade: warm orange rising from the bottom, magenta in the
- *  corners, and a soft vignette. `strength` is 0..1. */
-function sunsetGrade(ctx, rect, strength) {
-  if (strength <= 0) return;
-  const { x, y, w, h } = rect;
-  const warm = ctx.createLinearGradient(0, y + h * 0.25, 0, y + h);
-  warm.addColorStop(0, 'rgba(255, 122, 60, 0)');
-  warm.addColorStop(0.65, `rgba(255, 90, 50, ${0.22 * strength})`);
-  warm.addColorStop(1, `rgba(214, 38, 120, ${0.42 * strength})`);
-  ctx.fillStyle = warm;
-  ctx.fillRect(x, y, w, h);
-  const top = ctx.createLinearGradient(0, y, 0, y + h * 0.4);
-  top.addColorStop(0, `rgba(255, 190, 90, ${0.16 * strength})`);
-  top.addColorStop(1, 'rgba(255, 190, 90, 0)');
-  ctx.fillStyle = top;
-  ctx.fillRect(x, y, w, h * 0.4);
-  const vig = ctx.createRadialGradient(
-    x + w / 2, y + h / 2, Math.min(w, h) * 0.42,
-    x + w / 2, y + h / 2, Math.max(w, h) * 0.75);
-  vig.addColorStop(0, 'rgba(16, 6, 28, 0)');
-  vig.addColorStop(1, `rgba(16, 6, 28, ${0.34 * strength})`);
-  ctx.fillStyle = vig;
-  ctx.fillRect(x, y, w, h);
-}
-
-function emptyPanel(ctx, rect) {
-  const grad = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
-  grad.addColorStop(0, '#3a2440');
-  grad.addColorStop(1, '#241a33');
-  ctx.fillStyle = grad;
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.fillStyle = 'rgba(245, 239, 228, 0.55)';
-  ctx.font = `${Math.round(rect.h * 0.09)}px Anton, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('ADD PHOTO', rect.x + rect.w / 2, rect.y + rect.h / 2);
-  ctx.textBaseline = 'alphabetic';
-}
-
-/** A small setting sun: disc with rays, drawn in the caption colour. */
-function drawSun(ctx, cx, cy, r, color) {
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = Math.max(2, r * 0.12);
-  ctx.lineCap = 'round';
+function drawWordmark(ctx, w, layout) {
+  const { top, markH } = layout;
+  const cy = top + markH / 2;
+  const text = 'SOLMARINA';
+  const fontPx = Math.round(markH * 0.62);
+  ctx.font = `${fontPx}px Anton, 'Arial Black', sans-serif`;
+  const textW = ctx.measureText(text).width;
+  const sunR = Math.round(fontPx * 0.42);
+  const gapX = Math.round(fontPx * 0.28);
+  const chipPad = Math.round(fontPx * 0.34);
+  // The chip is measured from the real text width, so it hugs the sun
+  // and the wordmark exactly at every export size.
+  const chipW = chipPad * 2 + sunR * 2 + gapX + textW;
+  const chipH = markH;
+  const chipX = Math.round((w - chipW) / 2);
+  roundRectPath(ctx, chipX, top, chipW, chipH, Math.round(chipH * 0.22));
+  ctx.fillStyle = NAVY;
+  ctx.fill();
+  // Sun: a gradient disc with eight rays.
+  const sx = chipX + chipPad + sunR;
+  const sg = ctx.createLinearGradient(sx - sunR, cy - sunR, sx + sunR, cy + sunR);
+  sg.addColorStop(0, '#ffd94d');
+  sg.addColorStop(1, '#ff7a1a');
+  ctx.strokeStyle = '#ffd94d';
+  ctx.lineWidth = Math.max(2, Math.round(fontPx * 0.05));
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(a) * r * 1.35, cy + Math.sin(a) * r * 1.35);
-    ctx.lineTo(cx + Math.cos(a) * r * 1.7, cy + Math.sin(a) * r * 1.7);
+    ctx.moveTo(sx + Math.cos(a) * (sunR + 3), cy + Math.sin(a) * (sunR + 3));
+    ctx.lineTo(
+      sx + Math.cos(a) * (sunR + Math.round(fontPx * 0.16)),
+      cy + Math.sin(a) * (sunR + Math.round(fontPx * 0.16)),
+    );
     ctx.stroke();
   }
-  ctx.fillStyle = color;
+  ctx.fillStyle = sg;
   ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.arc(sx, cy, sunR, 0, Math.PI * 2);
   ctx.fill();
-  ctx.restore();
-}
-
-function fitFont(ctx, text, maxW, startSize, family) {
-  let size = startSize;
-  ctx.font = `${size}px ${family}`;
-  while (size > 12 && ctx.measureText(text).width > maxW) {
-    size -= 2;
-    ctx.font = `${size}px ${family}`;
-  }
-  return size;
-}
-
-/** Draws the whole cover. `state` holds sizeKey, photos[3], offsets[3],
- *  caption, subtitle, color, grade (0..1) and onePhoto. `highlight` is the
- *  index of the panel to outline in the editor preview, or -1 for export. */
-export function drawCover(canvas, state, highlight = -1) {
-  const ctx = canvas.getContext('2d');
-  const L = layoutFor(state.sizeKey);
-  const { w, h } = L;
-  canvas.width = w;
-  canvas.height = h;
-
+  // Wordmark text.
   ctx.fillStyle = CREAM;
-  ctx.fillRect(0, 0, w, h);
-
-  const photos = state.onePhoto
-    ? [state.photos[0], state.photos[0], state.photos[0]]
-    : state.photos;
-  L.panels.forEach((rect, i) => {
-    const img = photos[i];
-    if (img) {
-      drawPhoto(ctx, img, rect, state.offsets[i]);
-      sunsetGrade(ctx, rect, state.grade);
-    } else {
-      emptyPanel(ctx, rect);
-    }
-    ctx.strokeStyle = 'rgba(23, 18, 31, 0.85)';
-    ctx.lineWidth = Math.max(2, w * 0.002);
-    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-    if (i === highlight) {
-      ctx.strokeStyle = PINK;
-      ctx.lineWidth = Math.max(4, w * 0.005);
-      ctx.strokeRect(rect.x - 3, rect.y - 3, rect.w + 6, rect.h + 6);
-    }
-  });
-
-  // Wordmark over the hero panel: sun + SOLMARINA. The chip is measured
-  // from the real text width, so it hugs the wordmark at every size.
-  const hero = L.panels[0];
-  const wmSize = Math.round(w * 0.026);
-  const wmPad = wmSize * 0.55;
-  ctx.save();
-  ctx.font = `${wmSize}px Anton, sans-serif`;
-  const textW = ctx.measureText('SOLMARINA').width;
-  const chipX = hero.x + w * 0.014;
-  const chipY = hero.y + w * 0.014;
-  const wmH = wmSize * 1.9;
-  const wmW = wmPad + wmSize * 1.1 + textW + wmPad;
-  ctx.fillStyle = 'rgba(23, 18, 31, 0.55)';
-  ctx.fillRect(chipX, chipY, wmW, wmH);
-  drawSun(ctx, chipX + wmPad + wmSize * 0.42, chipY + wmH / 2, wmSize * 0.42, YELLOW);
-  ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText('SOLMARINA', chipX + wmPad + wmSize * 1.1, chipY + wmH / 2 + 1);
-  ctx.restore();
+  ctx.fillText(text, chipX + chipPad + sunR * 2 + gapX, cy + Math.round(fontPx * 0.04));
+}
 
-  // Caption band: neon rule, big caption, subtitle.
-  const cap = L.caption;
-  ctx.fillStyle = BAND;
-  ctx.fillRect(cap.x, cap.y, cap.w, cap.h);
-  const rule = ctx.createLinearGradient(cap.x, 0, cap.x + cap.w, 0);
-  rule.addColorStop(0, PINK);
-  rule.addColorStop(0.5, '#ff7a3d');
-  rule.addColorStop(1, YELLOW);
-  ctx.fillStyle = rule;
-  ctx.fillRect(cap.x, cap.y, cap.w, Math.max(4, w * 0.005));
+function drawCaptionBand(ctx, layout, state) {
+  const { band } = layout;
+  roundRectPath(ctx, band.x, band.y, band.w, band.h, Math.round(band.h * 0.08));
+  ctx.fillStyle = NAVY;
+  ctx.fill();
+  // Neon rule: hot pink melting into sun yellow, across the band.
+  const ruleH = Math.max(4, Math.round(band.h * 0.045));
+  const rg = ctx.createLinearGradient(band.x, 0, band.x + band.w, 0);
+  rg.addColorStop(0, '#ff2d78');
+  rg.addColorStop(1, '#ffc93c');
+  ctx.fillStyle = rg;
+  ctx.fillRect(
+    band.x + Math.round(band.w * 0.04),
+    band.y + Math.round(band.h * 0.1),
+    band.w - Math.round(band.w * 0.08),
+    ruleH,
+  );
+  // Caption, shrunk until it fits the band.
+  const availW = band.w - Math.round(band.w * 0.08);
+  let capPx = Math.round(band.h * 0.42);
+  ctx.font = `${capPx}px Anton, 'Arial Black', sans-serif`;
+  while (ctx.measureText(state.caption || ' ').width > availW && capPx > 20) {
+    capPx -= 2;
+    ctx.font = `${capPx}px Anton, 'Arial Black', sans-serif`;
+  }
+  ctx.fillStyle = SCENE_COLORS[state.color] || '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(state.caption || '', band.x + band.w / 2, band.y + band.h * 0.48);
+  // Subtitle, smaller and quieter.
+  const subPx = Math.max(14, Math.round(band.h * 0.16));
+  ctx.font = `600 ${subPx}px system-ui, sans-serif`;
+  ctx.fillStyle = 'rgba(246, 234, 209, 0.85)';
+  ctx.fillText((state.subtitle || '').toUpperCase(), band.x + band.w / 2, band.y + band.h * 0.82);
+}
 
-  const text = (state.caption || '').trim().toUpperCase();
-  const pad = w * 0.035;
-  const subSize = Math.round(w * 0.02);
-  if (text) {
-    const size = fitFont(ctx, text, cap.w - 2 * pad, Math.round(cap.h * 0.52), 'Anton, sans-serif');
-    ctx.fillStyle = state.color || '#ffffff';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    try { ctx.letterSpacing = '1px'; } catch (e) { /* older canvas: no letter-spacing */ }
-    const ty = cap.y + cap.h * 0.52 + size * 0.32;
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-    ctx.shadowBlur = size * 0.12;
-    ctx.shadowOffsetY = size * 0.04;
-    ctx.fillText(text, cap.x + pad, ty);
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-    try { ctx.letterSpacing = '0px'; } catch (e) { /* ignore */ }
+// Draw the whole poster onto ctx at exactly w × h pixels.
+// state: { photos[3], frames[3], fillAll, caption, subtitle, color }.
+export function drawCover(ctx, w, h, state) {
+  const layout = layoutFor(w, h);
+  ctx.fillStyle = BOARD;
+  ctx.fillRect(0, 0, w, h);
+  drawWordmark(ctx, w, layout);
+  const photos = state.fillAll
+    ? [state.photos[0], state.photos[0], state.photos[0]]
+    : state.photos;
+  drawPhoto(ctx, photos[0], layout.hero, state.frames[0]);
+  drawPhoto(ctx, photos[1], layout.small[0], state.frames[1]);
+  drawPhoto(ctx, photos[2], layout.small[1], state.frames[2]);
+  drawCaptionBand(ctx, layout, state);
+  return layout;
+}
+
+// Render the poster off-screen at one of the export sizes.
+export function renderCover(sizeKey, state) {
+  const { w, h } = SIZES[sizeKey];
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  drawCover(ctx, w, h, state);
+  return canvas;
+}
+
+// Which panel (0 = hero, 1–2 = small panels) holds canvas point x, y?
+// Returns -1 when the point is on the board, not on a photo.
+export function panelAt(layout, x, y) {
+  const hero = layout.hero;
+  if (x >= hero.x && x <= hero.x + hero.w && y >= hero.y && y <= hero.y + hero.h) return 0;
+  for (let i = 0; i < 2; i++) {
+    const r = layout.small[i];
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return 1 + i;
   }
-  const sub = (state.subtitle || '').trim().toUpperCase();
-  if (sub) {
-    ctx.fillStyle = 'rgba(245, 239, 228, 0.75)';
-    ctx.font = `600 ${subSize}px system-ui, sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.fillText(sub, cap.x + pad, cap.y + cap.h - cap.h * 0.16);
-  }
-  const tag = 'SOLMARINA · VICE COAST';
-  ctx.fillStyle = 'rgba(245, 239, 228, 0.55)';
-  ctx.font = `600 ${Math.round(subSize * 0.85)}px system-ui, sans-serif`;
-  ctx.textAlign = 'right';
-  ctx.fillText(tag, cap.x + cap.w - pad, cap.y + cap.h - cap.h * 0.16);
+  return -1;
 }

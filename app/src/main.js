@@ -1,170 +1,266 @@
-// Wires Solmarina Cover Studio: photo slots, panel crop-and-position,
-// caption and grade controls, size picker, and PNG export. Photos are read
-// on the person's own machine and never uploaded. A `?shot=` query sets up
-// a fixed scene for a screenshot instead (./shots.js).
-import { drawCover, layoutFor, SIZES } from './cover.js';
-import { runShot } from './shots.js';
+// Solmarina Cover Studio — editor wiring.
+// Owns the page state, the live preview canvas, and every control:
+// photo slots, demo photos, panel drag-to-crop, zoom, caption, colours,
+// export sizes and the PNG download. Photos are read in the browser
+// only and never uploaded anywhere.
 
-const canvas = document.getElementById('cover');
-const captionInput = document.getElementById('caption');
-const subtitleInput = document.getElementById('subtitle');
-const statusEl = document.getElementById('status');
-const gradeInput = document.getElementById('grade');
-const zoomInput = document.getElementById('zoom');
-const onePhotoBox = document.getElementById('one-photo');
+import { SIZES, drawCover, renderCover, layoutFor, panelAt } from './cover.js';
+import { SCENES, DEMO_PHOTOS, applyScene } from './shots.js';
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const state = {
-  sizeKey: 'square',
+  size: 'square',
   photos: [null, null, null],
-  offsets: [{ x: 0, y: 0, zoom: 1 }, { x: 0, y: 0, zoom: 1 }, { x: 0, y: 0, zoom: 1 }],
-  caption: captionInput.value,
-  subtitle: subtitleInput.value,
-  color: '#ffffff',
-  grade: gradeInput.value / 100,
-  onePhoto: false,
+  frames: [
+    { ox: 0, oy: 0, zoom: 1 },
+    { ox: 0, oy: 0, zoom: 1 },
+    { ox: 0, oy: 0, zoom: 1 },
+  ],
+  fillAll: false,
+  selected: 0,
+  caption: 'SUNSET HEIST',
+  subtitle: 'A SOLMARINA STORY',
+  color: 'yellow',
 };
-let selected = 0;
 
-function redraw(highlight = true) {
-  drawCover(canvas, state, highlight ? selected : -1);
-  zoomInput.value = Math.round(state.offsets[selected].zoom * 100);
+const preview = $('#preview');
+const pctx = preview.getContext('2d');
+let currentLayout = null;
+
+function setStatus(text) {
+  $('#status').textContent = text;
 }
 
-/** Loads an image from a URL, resolving once it can be drawn. */
-export function loadImage(url) {
+function render() {
+  const { w, h } = SIZES[state.size];
+  if (preview.width !== w || preview.height !== h) {
+    preview.width = w;
+    preview.height = h;
+  }
+  // Re-clamp every crop against the current layout first, so switching
+  // export sizes can never leave a photo short of its panel.
+  const layout = layoutFor(w, h);
+  for (let i = 0; i < 3; i++) clampFrame(i, layout);
+  currentLayout = drawCover(pctx, w, h, state);
+  const frame = state.frames[state.selected];
+  $('#sizeLabel').textContent = `${SIZES[state.size].label} — panel ${state.selected + 1} selected`;
+  $('#zoom').value = Math.round(frame.zoom * 100);
+  $('#zoomVal').textContent = `${Math.round(frame.zoom * 100)}%`;
+  $$('.size-btn').forEach((b) => b.classList.toggle('active', b.dataset.size === state.size));
+  $$('.swatch').forEach((b) => b.classList.toggle('active', b.dataset.color === state.color));
+}
+
+// Keep a photo's crop offset inside the panel: the photo must always
+// cover its panel, so the offset can never exceed the overhang.
+function clampFrame(idx, layout) {
+  const img = state.fillAll ? state.photos[0] : state.photos[idx];
+  const lay = layout || currentLayout;
+  if (!img || !lay) return;
+  const rect = idx === 0 ? lay.hero : lay.small[idx - 1];
+  const frame = state.frames[idx];
+  const base = Math.max(rect.w / img.naturalWidth, rect.h / img.naturalHeight) * frame.zoom;
+  const dw = img.naturalWidth * base;
+  const dh = img.naturalHeight * base;
+  const maxOx = Math.max(0, (dw - rect.w) / 2);
+  const maxOy = Math.max(0, (dh - rect.h) / 2);
+  frame.ox = Math.max(-maxOx, Math.min(maxOx, frame.ox));
+  frame.oy = Math.max(-maxOy, Math.min(maxOy, frame.oy));
+}
+
+// Default crop for a freshly loaded photo: bias toward the top of the
+// shot, where faces usually are, so a panel never opens on a headless
+// torso when the photo is taller than the panel. 0.55 of the way to the
+// top puts the subject's face in frame without losing the scene below.
+function defaultFrame(img, rect) {
+  const base = Math.max(rect.w / img.naturalWidth, rect.h / img.naturalHeight);
+  const dh = img.naturalHeight * base;
+  const maxOy = Math.max(0, (dh - rect.h) / 2);
+  return { ox: 0, oy: Math.round(maxOy * 0.55), zoom: 1 };
+}
+
+function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = url;
+    img.onerror = () => reject(new Error(`could not load ${src}`));
+    img.src = src;
   });
 }
 
-function canvasPoint(e) {
-  const r = canvas.getBoundingClientRect();
+async function loadDemo() {
+  setStatus('Loading demo photos…');
+  try {
+    const [boulevard, pier] = await Promise.all(DEMO_PHOTOS.map(loadImage));
+    state.photos[0] = boulevard;
+    state.photos[1] = pier;
+    state.photos[2] = boulevard;
+    const { w, h } = SIZES[state.size];
+    const layout = layoutFor(w, h);
+    state.frames = [
+      defaultFrame(boulevard, layout.hero),
+      defaultFrame(pier, layout.small[0]),
+      defaultFrame(boulevard, layout.small[1]),
+    ];
+    render();
+    setStatus('Demo photos loaded — click a panel, drag to crop, pick a size, export.');
+  } catch (err) {
+    setStatus('Could not load the demo photos.');
+  }
+}
+
+// --- Photo slots (file inputs) -------------------------------------------
+$$('input[type="file"][data-slot]').forEach((input) => {
+  input.addEventListener('change', () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      loadImage(reader.result)
+        .then((img) => {
+          const slot = Number(input.dataset.slot);
+          state.photos[slot] = img;
+          const { w, h } = SIZES[state.size];
+          const layout = layoutFor(w, h);
+          const rect = slot === 0 ? layout.hero : layout.small[slot - 1];
+          state.frames[slot] = defaultFrame(img, rect);
+          state.selected = slot;
+          render();
+          setStatus(`Photo ${slot + 1} loaded into panel ${slot + 1}.`);
+        })
+        .catch(() => setStatus('That file could not be read as a photo.'));
+    };
+    reader.readAsDataURL(file);
+  });
+});
+
+$('#demoBtn').addEventListener('click', loadDemo);
+
+$('#fillAll').addEventListener('change', (ev) => {
+  state.fillAll = ev.target.checked;
+  render();
+  setStatus(state.fillAll ? 'One photo fills all three panels.' : 'Each panel uses its own photo.');
+});
+
+// --- Panel select + drag to crop ------------------------------------------
+function canvasPoint(ev) {
+  const r = preview.getBoundingClientRect();
   return {
-    x: (e.clientX - r.left) * (canvas.width / r.width),
-    y: (e.clientY - r.top) * (canvas.height / r.height),
+    x: (ev.clientX - r.left) * (preview.width / r.width),
+    y: (ev.clientY - r.top) * (preview.height / r.height),
   };
 }
 
-function panelAt(p) {
-  const L = layoutFor(state.sizeKey);
-  return L.panels.findIndex((r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h);
-}
-
-// Click a panel to select it; drag to pan its photo.
 let drag = null;
-canvas.addEventListener('pointerdown', (e) => {
-  const p = canvasPoint(e);
-  const i = panelAt(p);
-  if (i < 0) return;
-  selected = i;
-  drag = { x: p.x, y: p.y, ox: state.offsets[i].x, oy: state.offsets[i].y };
-  canvas.setPointerCapture(e.pointerId);
-  redraw();
+preview.addEventListener('pointerdown', (ev) => {
+  const p = canvasPoint(ev);
+  const idx = panelAt(currentLayout, p.x, p.y);
+  if (idx < 0) return;
+  state.selected = idx;
+  drag = { x: p.x, y: p.y };
+  preview.setPointerCapture(ev.pointerId);
+  render();
 });
-canvas.addEventListener('pointermove', (e) => {
+preview.addEventListener('pointermove', (ev) => {
   if (!drag) return;
-  const p = canvasPoint(e);
-  state.offsets[selected].x = drag.ox + (p.x - drag.x);
-  state.offsets[selected].y = drag.oy + (p.y - drag.y);
-  redraw();
+  const p = canvasPoint(ev);
+  const frame = state.frames[state.selected];
+  frame.ox += p.x - drag.x;
+  frame.oy += p.y - drag.y;
+  clampFrame(state.selected, currentLayout);
+  drag.x = p.x;
+  drag.y = p.y;
+  render();
 });
-canvas.addEventListener('pointerup', () => { drag = null; });
-
-function bindPhotoSlot(i) {
-  document.getElementById(`photo-${i}`).addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    state.photos[i] = await loadImage(URL.createObjectURL(file));
-    state.offsets[i] = { x: 0, y: 0, zoom: 1 };
-    selected = i;
-    redraw();
-  });
-}
-[0, 1, 2].forEach(bindPhotoSlot);
-
-// Default framing per sample photo: both demo photos are tall shots whose
-// subject sits near the top, so nudge them down and the face stays in frame.
-function frameFor(sample) {
-  return sample === 'boulevard' ? { x: 0, y: 140, zoom: 1 } : { x: 0, y: 60, zoom: 1 };
-}
-
-document.getElementById('demo').addEventListener('click', async () => {
-  state.photos[0] = await loadImage('samples/boulevard.jpg');
-  state.photos[1] = await loadImage('samples/pier.jpg');
-  state.photos[2] = await loadImage('samples/boulevard.jpg');
-  state.offsets = [frameFor('boulevard'), frameFor('pier'), frameFor('boulevard')];
-  redraw();
-  statusEl.textContent = 'Demo photos loaded — click a panel, then drag to crop it.';
+preview.addEventListener('pointerup', () => {
+  drag = null;
+});
+preview.addEventListener('pointercancel', () => {
+  drag = null;
 });
 
-onePhotoBox.addEventListener('change', () => { state.onePhoto = onePhotoBox.checked; redraw(); });
-captionInput.addEventListener('input', () => { state.caption = captionInput.value; redraw(); });
-subtitleInput.addEventListener('input', () => { state.subtitle = subtitleInput.value; redraw(); });
-gradeInput.addEventListener('input', () => { state.grade = gradeInput.value / 100; redraw(); });
-zoomInput.addEventListener('input', () => {
-  state.offsets[selected].zoom = zoomInput.value / 100;
-  redraw();
+// --- Zoom (selected panel) -------------------------------------------------
+$('#zoom').addEventListener('input', (ev) => {
+  const frame = state.frames[state.selected];
+  frame.zoom = Number(ev.target.value) / 100;
+  clampFrame(state.selected, currentLayout);
+  render();
 });
 
-document.querySelectorAll('.swatch').forEach((b) => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('.swatch').forEach((x) => x.classList.remove('is-active'));
-    b.classList.add('is-active');
-    state.color = b.dataset.color;
-    redraw();
+// --- Size, caption, colour --------------------------------------------------
+$$('.size-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    state.size = btn.dataset.size;
+    render();
+    setStatus(`Export size: ${SIZES[state.size].label}.`);
   });
 });
 
-document.querySelectorAll('.size-btn').forEach((b) => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('.size-btn').forEach((x) => x.classList.remove('is-active'));
-    b.classList.add('is-active');
-    state.sizeKey = b.dataset.size;
-    redraw();
+$('#caption').addEventListener('input', (ev) => {
+  state.caption = ev.target.value;
+  render();
+});
+$('#subtitle').addEventListener('input', (ev) => {
+  state.subtitle = ev.target.value;
+  render();
+});
+$$('.swatch').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    state.color = btn.dataset.color;
+    render();
   });
 });
 
-document.getElementById('export').addEventListener('click', () => {
-  drawCover(canvas, state, -1); // export without the selection outline
-  const size = SIZES[state.sizeKey];
+// --- Export -----------------------------------------------------------------
+async function exportPNG() {
+  setStatus('Rendering PNG…');
+  await document.fonts.ready;
+  const canvas = renderCover(state.size, state);
+  const { w, h } = SIZES[state.size];
   canvas.toBlob((blob) => {
+    if (!blob) {
+      setStatus('Export failed — please try again.');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `solmarina-cover-${size.w}x${size.h}.png`;
+    a.href = url;
+    a.download = `solmarina-cover-${w}x${h}.png`;
     a.click();
-    statusEl.textContent = `Saved solmarina-cover-${size.w}x${size.h}.png`;
-    redraw();
+    window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+    setStatus(`Saved solmarina-cover-${w}x${h}.png`);
   }, 'image/png');
-});
-
-// Wait for Anton before the first paint so the canvas lettering uses it.
-async function boot() {
-  try {
-    await document.fonts.load('80px Anton');
-    await document.fonts.ready;
-  } catch (e) { /* fall back to the system sans-serif */ }
-  const q = new URLSearchParams(location.search);
-  const shot = q.get('shot');
-  if (shot) {
-    await runShot(shot, q, async (sample, text, sizeKey) => {
-      if (sizeKey) {
-        state.sizeKey = sizeKey;
-        document.querySelectorAll('.size-btn').forEach((x) => x.classList.toggle('is-active', x.dataset.size === sizeKey));
-      }
-      const other = sample === 'pier' ? 'boulevard' : 'pier';
-      state.photos[0] = await loadImage(`samples/${sample}.jpg`);
-      state.photos[1] = await loadImage(`samples/${other}.jpg`);
-      state.photos[2] = await loadImage(`samples/${sample}.jpg`);
-      state.offsets = [frameFor(sample), frameFor(other), frameFor(sample)];
-      state.caption = text;
-      captionInput.value = text;
-      redraw(false);
-    });
-  } else {
-    redraw();
-  }
 }
-boot();
+
+$('#exportBtn').addEventListener('click', exportPNG);
+
+// --- Start -------------------------------------------------------------------
+// ?scene=sunset|queen|tide picks a ready-made cover; ?demo=1 loads the
+// demo photos straight away (used for the screenshots).
+const params = new URLSearchParams(location.search);
+if (params.get('scene')) applyScene(state, params.get('scene'));
+$('#caption').value = state.caption;
+$('#subtitle').value = state.subtitle;
+
+if (document.fonts && document.fonts.load) {
+  document.fonts.load('100px Anton').then(render).catch(render);
+  document.fonts.ready.then(render);
+}
+if (params.get('demo') === '1') {
+  loadDemo();
+} else {
+  render();
+}
+
+// Small test handle for the automated checks (not part of the UI).
+window.__solmarina = {
+  state,
+  render,
+  exportPNG,
+  loadDemo,
+  pngDataURL: async () => {
+    await document.fonts.ready;
+    return renderCover(state.size, state).toDataURL('image/png');
+  },
+};
